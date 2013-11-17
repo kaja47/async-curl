@@ -21,7 +21,16 @@ trait CurlLike {
   }
 
 
-  function get($url, $args = [], $cfg = []) { return $this->request('get', $url, $args, $cfg); }
+  function get($url, $args = [], $cfg = [])  { return $this->request('get',  $url, $args, $cfg); }
+  function head($url, $args = [], $cfg = []) { return $this->request('head', $url, $args, $cfg); }
+
+  function configure($f) {
+    return $this->compose(Curl::makeCfgFunc($f));
+  }
+
+  function process($f) {
+    return $this->andThen($f);
+  }
 }
 
 
@@ -68,7 +77,6 @@ class Curl {
   }
 
   static function callbacks() {
-    $cfg = self::makeCfgFunc([CURLOPT_HEADER => true]);
     $res = function ($q) {
       return function ($cb) use ($q) {
         return $q(function ($ok, $err) use ($cb) {
@@ -76,15 +84,15 @@ class Curl {
         });
       };
     };
-    return self::rawCallbacks()->compose($cfg)->andThen($res);
+    return self::rawCallbacks()->configure([CURLOPT_HEADER => true])->process($res);
   }
 
   static function rawPromises() {
-    return self::rawCallbacks()->andThen('Curl::callbackToPromise');
+    return self::rawCallbacks()->andThen(['\Atrox\Curl', 'callbackToPromise']);
   }
 
   static function promises() {
-    return self::callbacks()->andThen('Curl::callbackToPromise');
+    return self::callbacks()->andThen(['\Atrox\Curl', 'callbackToPromise']);
   }
 
 
@@ -94,11 +102,11 @@ class Curl {
     return function ($cb) use ($curl) {
       $code = curl_multi_add_handle($this->multi, $curl);
       if ($code === 0) {
-        $this->tasks[(int) $curl] = [$url, $cb];
+        $this->tasks[(int) $curl] = $cb;
         while (curl_multi_exec($this->multi, $running) == CURLM_CALL_MULTI_PERFORM) {}
       } else {
         curl_multi_remove_handle($this->multi, $curl);
-        $cb(null, new \Exception(curl_multi_strerror($code))); // maybe should throw directly
+        $cb(null, new \Exception(curl_multi_strerror($code), $code)); // maybe should throw directly
       }
     };
   }
@@ -114,17 +122,19 @@ class Curl {
       if ($info['msg'] == CURLMSG_DONE) {
         $code = $info['result'];
         $curl = $info['handle'];
-        list($url, $cb) = $this->tasks[(int) $curl];
+        $cb = $this->tasks[(int) $curl];
 
         if ($code === CURLE_OK) {
           $content = curl_multi_getcontent($curl);
           unset($this->tasks[(int) $curl]);
           curl_multi_remove_handle($this->multi, $curl);
           $cb(($content), null);
+
         } else {
           unset($this->tasks[(int) $curl]);
+          $url = curl_getinfo($curl, CURLINFO_EFFECTIVE_URL);
           curl_multi_remove_handle($this->multi, $curl);
-          $cb(null, new \Exception(curl_strerror($code)));
+          $cb(null, new \Exception(curl_strerror($code)." ($url)", $code));
         }
 
       } else {
@@ -136,25 +146,30 @@ class Curl {
     return count($this->tasks);
   }
 
-  function loop($terminate = true) {
-    while (!$terminate || $this->step() !== 0);
+  function loop($timeout = 0.001) {
+    while ($this->step($timeout) !== 0);
   }
 
 
   // *** static utils ***
 
   static function makeCurl($method, $url, $args) {
-    $curl = curl_init($url);
+    $method = strtoupper($method);
+
+    $curl = curl_init();
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($curl, CURLOPT_ENCODING, '');
-    curl_setopt($curl, CURLOPT_CUSTOMREQUEST, strtoupper($method));
+    curl_setopt($curl, CURLOPT_CUSTOMREQUEST, $method);
 
-    if (strtoupper($method) === 'POST') {
+    if ($method === 'HEAD')
+      curl_setopt($curl, CURLOPT_NOBODY, true);
+
+    if ($method === 'POST') {
       curl_setopt($curl, CURLOPT_POSTFIELDS, $args);
     } else {
       $q = http_build_query($args, '', '&', PHP_QUERY_RFC3986);
       $sep = (strpos($url, '?') === false) ? '?' : '&';
-      curl_setopt($curl, CURLOPT_URL, $url.$sep.$q);
+      curl_setopt($curl, CURLOPT_URL, $q ? $url.$sep.$q : $url);
     }
     return $curl;
   }
