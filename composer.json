@@ -1,0 +1,19 @@
+{
+  "name": "atrox/async-curl",
+  "description": "Asynchronous & non-blocking Multi Curl library",
+  "require": {
+    "php": ">=5.5.0",
+    "react/promise": "dev-master",
+    "atrox/atrox": "dev-master"
+  },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/kaja47/atrox"
+    }
+  ],
+  "autoload": {
+    "psr-4": {"Atrox\\": "src/"},
+    "files": ["AsyncCurl.php"]
+  }
+}
