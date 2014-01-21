@@ -165,7 +165,8 @@ class Curl {
       curl_setopt($curl, CURLOPT_NOBODY, true);
 
     if ($method === 'POST') {
-      curl_setopt($curl, CURLOPT_POSTFIELDS, $args);
+      curl_setopt($curl, CURLOPT_POSTFIELDS, http_build_query($args));
+      curl_setopt($curl, CURLOPT_URL, $url);
     } else {
       $q = http_build_query($args, '', '&', PHP_QUERY_RFC3986);
       $sep = (strpos($url, '?') === false) ? '?' : '&';
