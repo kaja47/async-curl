@@ -72,23 +72,19 @@ class Curl {
 
   // *** static constructors ***
 
-  static function rawCallbacks() {
-    return new Curl();
-  }
-
   static function callbacks() {
     $res = function ($q) {
       return function ($cb) use ($q) {
         return $q(function ($ok, $err) use ($cb) {
-          $cb($err === null ? Curl::parseResponse($ok) : $ok, $err);
+          if ($err === null) {
+            list($cont, $info) = $ok;
+            $ok = Curl::parseResponse($cont, $info);
+          }
+          $cb($ok, $err);
         });
       };
     };
-    return self::rawCallbacks()->configure([CURLOPT_HEADER => true])->process($res);
-  }
-
-  static function rawPromises() {
-    return self::rawCallbacks()->andThen(['\Atrox\Curl', 'callbackToPromise']);
+    return (new Curl())->configure([CURLOPT_HEADER => true])->process($res);
   }
 
   static function promises() {
@@ -126,9 +122,10 @@ class Curl {
 
         if ($code === CURLE_OK) {
           $content = curl_multi_getcontent($curl);
+					$respInfo = curl_getinfo($curl);
           unset($this->tasks[(int) $curl]);
           curl_multi_remove_handle($this->multi, $curl);
-          $cb(($content), null);
+          $cb([$content, $respInfo], null);
 
         } else {
           unset($this->tasks[(int) $curl]);
@@ -184,7 +181,7 @@ class Curl {
   }
 
   // based on https://github.com/guzzle/parser/blob/master/Message/MessageParser.php
-  static function parseResponse($message) {
+  static function parseResponse($message, $info) {
     if (!$message)
       return null;
 
@@ -227,7 +224,7 @@ class Curl {
     $code = $startLine[1];
     $reasonPhrase = isset($startLine[2]) ? $startLine[2] : '';
 
-    return new Response($protocol, $version, $code, $reasonPhrase, $headers, $body);
+    return new Response($protocol, $version, $code, $reasonPhrase, $headers, $body, $info);
   }
 
   static function callbackToPromise($cb) {
@@ -242,10 +239,10 @@ class Curl {
 
 
 class Response {
-  private $protocol, $version, $code, $reasonPhrase, $headers, $body;
+  private $protocol, $version, $code, $reasonPhrase, $headers, $body, $info;
 
-  function __construct($protocol, $version, $code, $reasonPhrase, $headers, $body) {
-    list($this->protocol, $this->version, $this->code, $this->reasonPhrase, $this->headers, $this->body) = func_get_args();
+  function __construct($protocol, $version, $code, $reasonPhrase, $headers, $body, $info) {
+    list($this->protocol, $this->version, $this->code, $this->reasonPhrase, $this->headers, $this->body, $this->info) = func_get_args();
   }
 
   function __get($name) {
