@@ -102,7 +102,7 @@ class Curl {
         while (curl_multi_exec($this->multi, $running) == CURLM_CALL_MULTI_PERFORM) {}
       } else {
         curl_multi_remove_handle($this->multi, $curl);
-        $cb(null, new \Exception(curl_multi_strerror($code), $code)); // maybe should throw directly
+        $cb(null, new CurlException(curl_multi_strerror($code), $code, null)); // maybe should throw directly
       }
     };
   }
@@ -122,16 +122,16 @@ class Curl {
 
         if ($code === CURLE_OK) {
           $content = curl_multi_getcontent($curl);
-					$respInfo = curl_getinfo($curl);
+          $respInfo = curl_getinfo($curl);
           unset($this->tasks[(int) $curl]);
           curl_multi_remove_handle($this->multi, $curl);
           $cb([$content, $respInfo], null);
 
         } else {
           unset($this->tasks[(int) $curl]);
-          $url = curl_getinfo($curl, CURLINFO_EFFECTIVE_URL);
+          $respInfo = curl_getinfo($curl);
           curl_multi_remove_handle($this->multi, $curl);
-          $cb(null, new \Exception(curl_strerror($code)." ($url)", $code));
+          $cb(null, new CurlException(curl_strerror($code), $code, $respInfo));
         }
 
       } else {
@@ -243,6 +243,25 @@ class Response {
 
   function __construct($protocol, $version, $code, $reasonPhrase, $headers, $body, $info) {
     list($this->protocol, $this->version, $this->code, $this->reasonPhrase, $this->headers, $this->body, $this->info) = func_get_args();
+  }
+
+  function __get($name) {
+    return $this->$name;
+  }
+}
+
+
+class CurlException extends \RuntimeException {
+
+  private $info;
+
+  function __construct($message, $code, $info) {
+    parent::__construct($message, $code, null);
+    $this->info = $info;
+  }
+
+  function getInfo() {
+    return $this->info;
   }
 
   function __get($name) {
